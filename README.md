@@ -220,7 +220,6 @@ Activity Tracker CLI/
 
 ## License
 
-This project is 
 
 ## Contributing
 
