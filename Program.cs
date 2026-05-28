@@ -224,9 +224,12 @@ builder.Configuration
 builder.Services.AddSingleton<LocalStorageService>();
 builder.Services.AddSingleton<TelegramBotService>();
 
-// 2. Register Worker as singleton first (for DI), then as hosted service
+// 2. Register Worker and NotificationWatcher as singletons, then as hosted services
 builder.Services.AddSingleton<Worker>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<Worker>());
+
+builder.Services.AddSingleton<NotificationWatcher>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<NotificationWatcher>());
 
 // 3. Telegram bot client and command UI
 builder.Services.AddSingleton<ITelegramBotClient>(sp =>

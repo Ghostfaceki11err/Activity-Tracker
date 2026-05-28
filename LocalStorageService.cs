@@ -834,5 +834,89 @@ namespace Activity_Tracker
         }
 
         #endregion
+
+        #region Notification Storage
+
+        /// <summary>
+        /// Saves a captured notification to local storage
+        /// </summary>
+        public void SaveNotification(NotificationReport notification)
+        {
+            lock (_fileLock)
+            {
+                try
+                {
+                    var filePath = Path.Combine(_storageDirectory, "notifications.json");
+                    var notifications = LoadNotifications();
+
+                    // Add new one at the beginning (newest first)
+                    notifications.Insert(0, notification);
+
+                    // Limit to last 50 notifications to prevent file bloating
+                    if (notifications.Count > 50)
+                    {
+                        notifications = notifications.Take(50).ToList();
+                    }
+
+                    var json = JsonSerializer.Serialize(notifications, new JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(filePath, json);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "❌ Failed to save notification");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Loads all captured notifications
+        /// </summary>
+        public List<NotificationReport> LoadNotifications()
+        {
+            lock (_fileLock)
+            {
+                try
+                {
+                    var filePath = Path.Combine(_storageDirectory, "notifications.json");
+                    if (!File.Exists(filePath))
+                        return new List<NotificationReport>();
+
+                    var json = File.ReadAllText(filePath);
+                    if (string.IsNullOrWhiteSpace(json))
+                        return new List<NotificationReport>();
+
+                    return JsonSerializer.Deserialize<List<NotificationReport>>(json) ?? new List<NotificationReport>();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "❌ Failed to load notifications");
+                    return new List<NotificationReport>();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Clears all captured notifications
+        /// </summary>
+        public void ClearNotifications()
+        {
+            lock (_fileLock)
+            {
+                try
+                {
+                    var filePath = Path.Combine(_storageDirectory, "notifications.json");
+                    if (File.Exists(filePath))
+                    {
+                        File.WriteAllText(filePath, "[]");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "❌ Failed to clear notifications");
+                }
+            }
+        }
+
+        #endregion
     }
 }

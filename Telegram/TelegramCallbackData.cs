@@ -19,7 +19,7 @@ public static class TelegramCallbackData
     // Data
     public const string Stats = "d:stats";
     public const string Pending = "d:pending";
-    public const string Sync = "d:sync";
+    public const string Notifications = "d:notifs";
     public const string Clear = "d:clear";
 
     // Utility
@@ -31,6 +31,7 @@ public static class TelegramCallbackData
     public const string Lock = "u:lock";
     public const string Sleep = "u:sleep";
     public const string Blocklist = "u:block";
+    public const string Signout = "u:signout";
 
     // Confirm / destructive
     public const string ConfirmShutdown = "cfm:shutdown";

@@ -799,25 +799,34 @@ public class Worker : BackgroundService
         var result = new List<(int pid, string name, double memoryMb)>();
         try
         {
-            var processes = System.Diagnostics.Process.GetProcesses()
-                .OrderByDescending(p => {
-                    try { return p.WorkingSet64; }
-                    catch { return 0L; }
-                })
-                .Take(count);
+            var allProcesses = System.Diagnostics.Process.GetProcesses();
+            var validProcesses = new List<(int pid, string name, double memoryMb)>();
 
-            foreach (var p in processes)
+            foreach (var p in allProcesses)
             {
                 try
                 {
-                    double memMb = p.WorkingSet64 / (1024.0 * 1024.0);
-                    result.Add((p.Id, p.ProcessName, memMb));
+                    long workingSet = p.WorkingSet64;
+                    if (workingSet > 0)
+                    {
+                        double memMb = workingSet / (1024.0 * 1024.0);
+                        validProcesses.Add((p.Id, p.ProcessName, memMb));
+                    }
                 }
                 catch
                 {
                     // Ignore inaccessible processes
                 }
+                finally
+                {
+                    p.Dispose();
+                }
             }
+
+            result = validProcesses
+                .OrderByDescending(p => p.memoryMb)
+                .Take(count)
+                .ToList();
         }
         catch (Exception ex)
         {

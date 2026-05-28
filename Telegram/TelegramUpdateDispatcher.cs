@@ -150,9 +150,19 @@ public class TelegramUpdateDispatcher
                     await _commands.HandlePendingCommandAsync(chatId, cancellationToken);
                     break;
 
+                case TelegramCallbackData.Notifications:
+                    await AnswerCallbackSafeAsync(callback.Id, cancellationToken);
+                    await _commands.HandleNotificationsCommandAsync(chatId, cancellationToken);
+                    break;
+
                 case TelegramCallbackData.Clear:
                     await AnswerCallbackSafeAsync(callback.Id, cancellationToken);
                     await _commands.HandleClearCommandAsync(chatId, cancellationToken);
+                    break;
+
+                case TelegramCallbackData.Signout:
+                    await AnswerCallbackSafeAsync(callback.Id, "Signing out…", cancellationToken);
+                    await _commands.HandleSignoutCommandAsync(chatId, cancellationToken);
                     break;
 
                 case TelegramCallbackData.Screenshot:
