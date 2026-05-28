@@ -110,6 +110,9 @@ public class Worker : BackgroundService
     [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool GlobalMemoryStatusEx([In, Out] MEMORYSTATUSEX lpBuffer);
 
+    [DllImport("kernel32.dll")]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
     #endregion
 
     #region Constructor
@@ -155,6 +158,26 @@ public class Worker : BackgroundService
 
     #region Background Service Implementation
 
+    private bool IsActiveConsoleSession()
+    {
+        try
+        {
+            uint activeSessionId = WTSGetActiveConsoleSessionId();
+            if (activeSessionId == 0xFFFFFFFF)
+            {
+                return false;
+            }
+
+            uint currentSessionId = (uint)System.Diagnostics.Process.GetCurrentProcess().SessionId;
+            return currentSessionId == activeSessionId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to determine if running in active console session");
+            return true; // Fallback
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("👁️ Window Monitor Worker starting...");
@@ -171,21 +194,37 @@ public class Worker : BackgroundService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                // Enforce the application block list
-                EnforceAppBlockList();
-
-                // Enforce the website domain block list
-                EnforceWebBlockList();
-
-                // Only monitor if tracking is enabled
-                if (_isTrackingEnabled)
+                if (IsActiveConsoleSession())
                 {
-                    await MonitorWindowChangesAsync(stoppingToken);
+                    // Enforce the application block list
+                    EnforceAppBlockList();
+
+                    // Enforce the website domain block list
+                    EnforceWebBlockList();
+
+                    // Only monitor if tracking is enabled
+                    if (_isTrackingEnabled)
+                    {
+                        await MonitorWindowChangesAsync(stoppingToken);
+                    }
+                    else
+                    {
+                        // If tracking is disabled, just sleep to avoid CPU usage
+                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    }
                 }
                 else
                 {
-                    // If tracking is disabled, just sleep to avoid CPU usage
+                    // If we became inactive but still have a session, end it gracefully
+                    if (_currentSession != null)
+                    {
+                        _logger.LogInformation("👤 Session became inactive due to user switch. Ending current tracking session.");
+                        await EndCurrentSessionAsync();
+                    }
+
+                    // Sleep longer to avoid CPU usage when backgrounded
                     await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    continue; // Skip the regular check interval delay
                 }
 
                 await Task.Delay(_checkInterval, stoppingToken);
@@ -1522,14 +1561,28 @@ public class Worker : BackgroundService
                     else
                     {
                         report.RecordSendAttempt(false, "Sync send failed");
-                        _storageService.Save(report);
+                        if (report.SendAttempts >= 10)
+                        {
+                            _storageService.MoveToFailed(report);
+                        }
+                        else
+                        {
+                            _storageService.Save(report);
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "❌ Failed to sync report {Id}", report.Id);
                     report.RecordSendAttempt(false, ex.Message);
-                    _storageService.Save(report);
+                    if (report.SendAttempts >= 10)
+                    {
+                        _storageService.MoveToFailed(report);
+                    }
+                    else
+                    {
+                        _storageService.Save(report);
+                    }
                 }
 
                 // Short delay to respect API limits

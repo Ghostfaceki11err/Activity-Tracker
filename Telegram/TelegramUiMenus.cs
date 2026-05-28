@@ -24,7 +24,6 @@ public static class TelegramUiMenus
         new[]
         {
             InlineKeyboardButton.WithCallbackData("📸 Screenshot", TelegramCallbackData.Screenshot),
-            InlineKeyboardButton.WithCallbackData("🔄 Sync", TelegramCallbackData.Sync),
         },
         new[]
         {
@@ -99,7 +98,7 @@ public static class TelegramUiMenus
         <b>❓ Help</b>
 
         <b>Control:</b> Track, Stop, Status, Current
-        <b>Data:</b> Stats, Pending, Sync, Clear
+        <b>Data:</b> Stats, Pending, Clear
         <b>Utility:</b> Screenshot, Webcam, Sysinfo, Lock, Sleep
         <b>Advanced (slash only):</b>
         <code>/kill</code> <code>/block</code> <code>/msg</code> <code>/open</code> <code>/history</code>

@@ -798,5 +798,41 @@ namespace Activity_Tracker
         }
 
         #endregion
+
+        #region Recovery Operations
+
+        /// <summary>
+        /// Resets the send attempts for all unsent active reports to 0.
+        /// </summary>
+        public void ResetSendAttempts()
+        {
+            lock (_fileLock)
+            {
+                try
+                {
+                    var reports = LoadActiveReports();
+                    bool modified = false;
+
+                    foreach (var report in reports.Where(r => !r.Sent && r.SendAttempts > 0))
+                    {
+                        report.SendAttempts = 0;
+                        report.LastError = null;
+                        modified = true;
+                    }
+
+                    if (modified)
+                    {
+                        SaveReportsToFile(reports, _activeFilePath);
+                        _logger?.LogInformation("🔄 Reset send attempts for unsent reports to enable retry.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "❌ Failed to reset send attempts");
+                }
+            }
+        }
+
+        #endregion
     }
 }
